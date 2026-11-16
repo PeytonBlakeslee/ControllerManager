@@ -1,0 +1,25 @@
+name: ControllerManager player source smoke
+on:
+  push:
+    branches: [main, testing, release-candidate]
+    paths: ['mod/**/*.py', 'tests/**/*.py', '.github/workflows/source-smoke.yml']
+  pull_request:
+    paths: ['mod/**/*.py', 'tests/**/*.py', '.github/workflows/source-smoke.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  source-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.14'
+      - name: Offline controller layout and shortcut regressions
+        run: python -B -m unittest discover -s tests -p 'test_*.py' -v
+      - name: Python syntax and essential capture modules
+        run: |
+          python -B -c "import ast,pathlib; p=pathlib.Path('mod/ControllerManager'); files=sorted(p.glob('*.py')); assert files, 'ControllerManager Python sources missing'; [ast.parse(f.read_text(encoding='utf-8-sig'), filename=str(f)) for f in files]; print(f'Parsed {len(files)} modules')"
+          python -B -c "import pathlib; p=pathlib.Path('mod/ControllerManager'); required=('capture.py','sdk_capture.py'); missing=[x for x in required if not (p/x).is_file()]; assert not missing, f'Missing capture modules: {missing}'; print('Input assignment UI retained')"
