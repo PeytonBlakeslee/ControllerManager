@@ -790,9 +790,15 @@ class BindingRuntime:
     def cancel_drain(self):
         if self.drain_hook is not None:
             path,kind,ident=self.drain_hook
-            unrealsdk.hooks.remove_hook(path,kind,ident)
-            # Keep the hook ledger if SDK removal reports success but retains
-            # the ID. A manual retry can still remove our known registration.
+            try:
+                unrealsdk.hooks.remove_hook(path,kind,ident)
+            except Exception:
+                # The SDK may unregister successfully and then raise. Keep a
+                # retryable owner record only if the callback is still installed.
+                if unrealsdk.hooks.has_hook(path,kind,ident):
+                    raise
+            # A reported success is not proof of removal. Reconcile the live
+            # hook ID before releasing ownership of our temporary callback.
             if unrealsdk.hooks.has_hook(path,kind,ident):
                 raise RuntimeError('Binding cleanup hook removal not confirmed')
             self.drain_hook=None

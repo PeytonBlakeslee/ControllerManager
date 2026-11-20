@@ -25,6 +25,8 @@ class HookRegistry:
         self.removes = 0
         self.adds = 0
         self.remove_fails = 0
+        self.remove_after_fails = 0
+        self.remove_sticks = 0
 
     def has_hook(self, *spec):
         return tuple(spec) in self.callbacks
@@ -42,7 +44,13 @@ class HookRegistry:
         if self.remove_fails:
             self.remove_fails -= 1
             raise RuntimeError("SDK removal temporarily unavailable")
+        if self.remove_sticks:
+            self.remove_sticks -= 1
+            return True
         self.callbacks.pop(tuple(spec), None)
+        if self.remove_after_fails:
+            self.remove_after_fails -= 1
+            raise RuntimeError("SDK removed the hook before raising")
         return True
 
     def boundary(self, pi):
@@ -284,6 +292,57 @@ class DrainTests(unittest.TestCase):
         t.hooks.boundary(t.pi)
         self.assertFalse(t.hooks.callbacks)
         self.assertIsNone(t.runtime.drain_hook)
+
+    def test_removal_then_exception_clears_ledger_and_allows_new_drain(self):
+        t = scenario()
+        t.hooks.remove_after_fails = 1
+        t.runtime.disable()
+        t.hooks.boundary(t.pi)
+        t.hooks.boundary(t.pi)
+        self.assertEqual(t.rows["A"]._handlers, ["baseline-a"])
+        self.assertIsNone(t.runtime.drain_hook)
+        self.assertEqual(t.runtime.drain_failures, 0)
+        self.assertFalse(t.hooks.callbacks)
+        # A later independent restore must be able to install its own hook.
+        t.rows["A"]._handlers = ["custom"]
+        t.runtime.applied = {"A": ("custom",)}
+        t.runtime.disable()
+        self.assertEqual(t.hooks.adds, 2)
+        t.hooks.boundary(t.pi)
+        self.assertEqual(t.rows["A"]._handlers, ["custom"])
+        t.hooks.boundary(t.pi)
+        self.assertEqual(t.rows["A"]._handlers, ["baseline-a"])
+        self.assertIsNone(t.runtime.drain_hook)
+
+    def test_explicit_cancel_after_unregistration_exception_can_rearm(self):
+        t = scenario()
+        t.runtime.disable()
+        t.hooks.remove_after_fails = 1
+        t.runtime.cancel_drain()
+        self.assertIsNone(t.runtime.drain_hook)
+        self.assertFalse(t.hooks.callbacks)
+        self.assertEqual(t.runtime.applied, {"A": ("custom",)})
+        self.assertEqual(t.rows["A"].assignments, 0)
+        t.runtime.disable()
+        self.assertEqual(t.hooks.adds, 2)
+        t.hooks.boundary(t.pi)
+        self.assertEqual(t.rows["A"]._handlers, ["custom"])
+        t.hooks.boundary(t.pi)
+        self.assertEqual(t.rows["A"]._handlers, ["baseline-a"])
+
+    def test_success_without_unregistration_keeps_retryable_hook_owner(self):
+        t = scenario()
+        t.runtime.disable()
+        t.hooks.remove_sticks = 1
+        with self.assertRaisesRegex(RuntimeError, "not confirmed"):
+            t.runtime.cancel_drain()
+        self.assertIsNotNone(t.runtime.drain_hook)
+        self.assertEqual(len(t.hooks.callbacks), 1)
+        t.runtime.cancel_drain()
+        self.assertIsNone(t.runtime.drain_hook)
+        self.assertFalse(t.hooks.callbacks)
+        self.assertEqual(t.runtime.applied, {"A": ("custom",)})
+        self.assertEqual(t.rows["A"].assignments, 0)
 
     def test_manual_ui_retry_rearms_but_never_restores_synchronously(self):
         t = scenario()

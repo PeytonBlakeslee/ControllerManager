@@ -1,4 +1,4 @@
-# Controller Manager 1.0.0-rc1
+# Controller Manager 1.0.0
 
 Customize Walking and Driving controller bindings, look sensitivity, and shortcuts for compatible SDK mods in Borderlands 2. The mod does not replace your keyboard mappings.
 
